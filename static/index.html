@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI PDF Editör</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f0f1a; color: #e2e8f0; min-height: 100vh; }
+  .container { max-width: 640px; margin: 0 auto; padding: 24px 16px; }
+  h1 { text-align: center; font-size: 28px; font-weight: 800; margin-bottom: 8px;
+       background: linear-gradient(135deg, #a78bfa, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .subtitle { text-align: center; color: #64748b; font-size: 14px; margin-bottom: 32px; }
+  .card { background: #1e1e2e; border: 1px solid #2d2d3d; border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+  .card h3 { font-size: 14px; font-weight: 700; color: #a78bfa; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .upload-area { border: 2px dashed #3d3d5c; border-radius: 10px; padding: 20px; text-align: center; cursor: pointer; transition: all 0.2s; }
+  .upload-area:hover { border-color: #a78bfa; background: rgba(167,139,250,0.05); }
+  .upload-area input { display: none; }
+  .upload-area label { cursor: pointer; display: block; }
+  .upload-area .icon { font-size: 32px; margin-bottom: 8px; }
+  .upload-area .text { font-size: 14px; color: #64748b; }
+  .upload-area .filename { margin-top: 8px; font-size: 13px; color: #a78bfa; font-weight: 600; }
+  textarea { width: 100%; background: #13131f; border: 1.5px solid #2d2d3d; border-radius: 10px;
+             color: #e2e8f0; padding: 12px; font-size: 14px; resize: vertical; min-height: 80px; outline: none; }
+  textarea:focus { border-color: #a78bfa; }
+  .voice-btn { display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+               border-radius: 8px; border: 1.5px solid #3d3d5c; background: #13131f;
+               color: #e2e8f0; cursor: pointer; font-size: 13px; margin-bottom: 12px; transition: all 0.2s; }
+  .voice-btn:hover { border-color: #a78bfa; }
+  .voice-btn.recording { border-color: #f87171; color: #f87171; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+  .btn-primary { width: 100%; padding: 16px; border-radius: 12px; border: none;
+                 background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
+                 font-size: 16px; font-weight: 700; cursor: pointer; transition: opacity 0.2s; }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .result { background: #0d2d1a; border: 1px solid #16a34a; border-radius: 12px; padding: 16px; margin-top: 16px; }
+  .result h3 { color: #4ade80; font-size: 15px; margin-bottom: 12px; }
+  .download-btn { display: block; text-align: center; padding: 12px; border-radius: 10px;
+                  background: #16a34a; color: #fff; text-decoration: none; font-weight: 700; font-size: 14px; }
+  .action-item { background: #0a1f10; border-radius: 6px; padding: 8px 12px; margin-bottom: 6px; font-size: 12px; color: #86efac; }
+  .error { background: #1f0d0d; border: 1px solid #dc2626; border-radius: 10px; padding: 14px; margin-top: 12px; color: #f87171; font-size: 14px; }
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3);
+             border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .optional-tag { font-size: 11px; color: #475569; font-weight: 400; text-transform: none; letter-spacing: 0; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>AI PDF Editör</h1>
+  <p class="subtitle">PDF'inizi yükleyin, komut verin — AI düzenlesin</p>
+
+  <div class="card">
+    <h3>📄 PDF Yükle</h3>
+    <div class="upload-area" onclick="document.getElementById('pdf-input').click()">
+      <label>
+        <div class="icon">📂</div>
+        <div class="text">PDF dosyanızı seçin</div>
+        <div class="filename" id="pdf-name">Seçilmedi</div>
+        <input type="file" id="pdf-input" accept=".pdf,application/pdf" onchange="setPdfName(this)">
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🖼️ Görsel Yükle <span class="optional-tag">(opsiyonel — OCR için)</span></h3>
+    <div class="upload-area" onclick="document.getElementById('img-input').click()">
+      <label>
+        <div class="icon">🖼️</div>
+        <div class="text">Referans görsel seçin (kimlik, fatura vb.)</div>
+        <div class="filename" id="img-name">Seçilmedi</div>
+        <input type="file" id="img-input" accept="image/*" onchange="setImgName(this)">
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>💬 Komut</h3>
+    <button class="voice-btn" id="voice-btn" onclick="toggleRecording()">
+      <span id="voice-icon">🎤</span>
+      <span id="voice-text">Sesli komut ver</span>
+    </button>
+    <textarea id="command" placeholder="Örn: Fiyatları %10 artır&#10;Örn: Ali ismini Veli ile değiştir&#10;Örn: Sayfanın başına bugünün tarihini ekle"></textarea>
+  </div>
+
+  <button class="btn-primary" id="process-btn" onclick="processCommand()">✨ PDF'i İşle</button>
+
+  <div id="result-area"></div>
+  <div id="error-area"></div>
+</div>
+
+<script>
+let pdfId=null, imgId=null, mediaRecorder=null, recording=false, audioChunks=[];
+
+function setPdfName(input) {
+  document.getElementById('pdf-name').textContent = input.files[0]?.name || 'Seçilmedi';
+  pdfId = null;
+}
+function setImgName(input) {
+  document.getElementById('img-name').textContent = input.files[0]?.name || 'Seçilmedi';
+  imgId = null;
+}
+
+async function toggleRecording() {
+  const btn=document.getElementById('voice-btn'), icon=document.getElementById('voice-icon'), text=document.getElementById('voice-text');
+  if (!recording) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+      mediaRecorder = new MediaRecorder(stream); audioChunks = [];
+      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, {type:'audio/webm'});
+        const fd = new FormData(); fd.append('file', blob, 'ses.webm');
+        text.textContent = 'Çevriliyor...';
+        try {
+          const r = await fetch('/voice-to-text', {method:'POST', body:fd});
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.detail || 'Ses metne çevrilemedi.');
+          if (d.text) document.getElementById('command').value = d.text;
+        } catch(e) { showError(e.message || 'Ses metne çevrilemedi.'); }
+        text.textContent = 'Sesli komut ver'; icon.textContent = '🎤'; btn.classList.remove('recording');
+      };
+      mediaRecorder.start(); recording=true; btn.classList.add('recording'); icon.textContent='⏹️'; text.textContent='Durdurmak için tıkla';
+    } catch(e) { showError('Mikrofon erişimi reddedildi.'); }
+  } else {
+    mediaRecorder.stop(); mediaRecorder.stream.getTracks().forEach(t=>t.stop()); recording=false;
+  }
+}
+
+async function processCommand() {
+  const pdfInput=document.getElementById('pdf-input'), imgInput=document.getElementById('img-input');
+  const command=document.getElementById('command').value.trim(), btn=document.getElementById('process-btn');
+  clearMessages();
+  if (!pdfInput.files[0]) return showError('Lütfen bir PDF dosyası seçin.');
+  if (!command) return showError('Lütfen bir komut yazın.');
+  btn.disabled=true; btn.innerHTML='<div class="loading-text"><div class="spinner"></div> İşleniyor...</div>';
+  try {
+    if (!pdfId) {
+      const fd=new FormData(); fd.append('file', pdfInput.files[0]);
+      const r=await fetch('/upload-pdf', {method:'POST', body:fd});
+      const d=await r.json();
+      if (!r.ok) throw new Error(d.detail || 'PDF yüklenemedi.');
+      pdfId = d.pdf_id;
+    }
+    if (!imgId && imgInput.files[0]) {
+      const fd=new FormData(); fd.append('file', imgInput.files[0]);
+      const r=await fetch('/upload-image', {method:'POST', body:fd});
+      if (r.ok) imgId=(await r.json()).image_id;
+    }
+    const r=await fetch('/process-command', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pdf_id:pdfId, command, image_id:imgId||''})
+    });
+    const data=await r.json();
+    if (!r.ok) throw new Error(data.detail || 'İşlem başarısız oldu.');
+    const actions=(data.actions_applied||[]).map(a=>`<div class="action-item">✓ ${JSON.stringify(a)}</div>`).join('');
+    document.getElementById('result-area').innerHTML=`
+      <div class="result">
+        <h3>✅ İşlem Tamamlandı!</h3>
+        <a class="download-btn" href="${data.download_url}" download>⬇️ Düzenlenmiş PDF'i İndir</a>
+        ${actions ? '<br><b style="font-size:12px;color:#64748b">Yapılan işlemler:</b>'+actions : ''}
+      </div>`;
+  } catch(e) {
+    showError(e.message || 'Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.');
+  }
+  finally { btn.disabled=false; btn.innerHTML='✨ PDF\'i İşle'; }
+}
+
+function showError(msg) { document.getElementById('error-area').innerHTML=`<div class="error">❌ ${msg}</div>`; }
+function clearMessages() { document.getElementById('result-area').innerHTML=''; document.getElementById('error-area').innerHTML=''; }
+</script>
+</body>
+</html>
