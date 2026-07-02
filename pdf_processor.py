@@ -1,7 +1,16 @@
+from pathlib import Path
 import fitz  # PyMuPDF
+
+FONT_PATH = str(Path(__file__).parent / "fonts" / "LiberationSans-Regular.ttf")
+FONT_NAME = "turkce"
 
 
 class PDFProcessor:
+    def __init__(self):
+        # Base-14 fonts (helv/Helvetica) lack Turkish glyphs (İ, ı, Ş, ş, Ğ, ğ...),
+        # so all text we write into the PDF uses this embedded Unicode font instead.
+        self._font = fitz.Font(fontfile=FONT_PATH)
+
     def extract_text(self, path: str) -> str:
         with fitz.open(path) as doc:
             return "\n".join(page.get_text() for page in doc)
@@ -26,7 +35,6 @@ class PDFProcessor:
     def _find_replace(self, doc, find: str, replace: str) -> None:
         if not find:
             return
-        fontname = "helv"
         for page in doc:
             rects = page.search_for(find)
             if not rects:
@@ -37,10 +45,13 @@ class PDFProcessor:
             for rect in rects:
                 fontsize = max(rect.height - 2, 6)
                 if replace:
-                    text_width = fitz.get_text_length(replace, fontname=fontname, fontsize=fontsize)
+                    text_width = self._font.text_length(replace, fontsize=fontsize)
                     if text_width > rect.width:
                         fontsize = max(fontsize * (rect.width / text_width), 4)
-                page.insert_text((rect.x0, rect.y1 - 2), replace, fontsize=fontsize, fontname=fontname)
+                page.insert_text(
+                    (rect.x0, rect.y1 - 2), replace,
+                    fontsize=fontsize, fontname=FONT_NAME, fontfile=FONT_PATH,
+                )
 
     def _add_text(self, doc, action: dict) -> None:
         text = str(action.get("text", ""))
@@ -53,4 +64,7 @@ class PDFProcessor:
         x = float(action.get("x", 50))
         y = float(action.get("y", 50))
         fontsize = float(action.get("fontsize", 12))
-        page.insert_text((x, y), text, fontsize=fontsize)
+        page.insert_text(
+            (x, y), text,
+            fontsize=fontsize, fontname=FONT_NAME, fontfile=FONT_PATH,
+        )
