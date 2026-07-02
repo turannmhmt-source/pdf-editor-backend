@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import fitz  # PyMuPDF
 
@@ -123,6 +124,12 @@ class PDFProcessor:
         page_filter = self._to_int(action.get("page"))
         occurrence = self._to_int(action.get("occurrence"))
 
+        # A short "find" (e.g. a 2-digit age) with no page/occurrence scoping is
+        # too likely to also match unrelated numbers/dates elsewhere on the page
+        # and silently corrupt them; refuse rather than risk collateral damage.
+        if len(find) < 5 and not page_filter and not occurrence:
+            return
+
         if page_filter and 1 <= page_filter <= len(doc):
             pages = [doc[page_filter - 1]]
         else:
@@ -172,3 +179,60 @@ class PDFProcessor:
             fontsize=fontsize, fontname=f"f-{key[0]}-{int(key[1])}-{int(key[2])}",
             fontfile=str(FONT_FILES[key]),
         )
+
+    def _clamp_page(self, doc, page_num) -> int:
+        page_num = self._to_int(page_num) or 1
+        return max(1, min(page_num, len(doc))) - 1
+
+    def get_page_count(self, path: str) -> int:
+        with fitz.open(path) as doc:
+            return len(doc)
+
+    def get_text_boxes(self, path: str, page_num) -> dict:
+        with fitz.open(path) as doc:
+            idx = self._clamp_page(doc, page_num)
+            page = doc[idx]
+            boxes = []
+            for block in page.get_text("dict").get("blocks", []):
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        text = (span.get("text") or "").strip()
+                        if not text:
+                            continue
+                        boxes.append({"bbox": list(span["bbox"]), "text": text})
+            return {
+                "width": page.rect.width, "height": page.rect.height,
+                "page_count": len(doc), "boxes": boxes,
+            }
+
+    def render_page_png(self, path: str, page_num, dpi: int = 150) -> bytes:
+        with fitz.open(path) as doc:
+            idx = self._clamp_page(doc, page_num)
+            pix = doc[idx].get_pixmap(dpi=dpi)
+            return pix.tobytes("png")
+
+    def edit_bbox(self, path: str, page_num, bbox: list, new_text: str) -> bool:
+        tmp_path = f"{path}.tmp"
+        try:
+            with fitz.open(path) as doc:
+                idx = self._clamp_page(doc, page_num)
+                page = doc[idx]
+                rect = fitz.Rect(bbox)
+                span = self._span_at(page, rect)
+                # A manual selection's bbox is a whole text span/line, which can
+                # be taller than the glyph ink and bleed into a tightly packed
+                # neighboring row; inset the redaction slightly so it can't erase
+                # a previously edited row above/below by a fraction of a point.
+                inset = rect.height * 0.1
+                redact_rect = fitz.Rect(rect.x0, rect.y0 + inset, rect.x1, rect.y1 - inset)
+                page.add_redact_annot(redact_rect, fill=(1, 1, 1))
+                page.apply_redactions()
+                if new_text:
+                    self._insert_matched_text(page, rect, span, new_text)
+                doc.save(tmp_path)
+            os.replace(tmp_path, path)
+            return True
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            return False

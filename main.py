@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from pdf_processor import PDFProcessor
@@ -15,8 +15,8 @@ load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY","")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY","")
 
-UPLOAD_DIR = Path("uploads"); RESULT_DIR = Path("results")
-UPLOAD_DIR.mkdir(exist_ok=True); RESULT_DIR.mkdir(exist_ok=True)
+UPLOAD_DIR = Path("uploads"); RESULT_DIR = Path("results"); WORK_DIR = Path("workcopies")
+UPLOAD_DIR.mkdir(exist_ok=True); RESULT_DIR.mkdir(exist_ok=True); WORK_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(title="AI PDF Editör")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -33,10 +33,28 @@ _ID_RE = re.compile(r"^[0-9a-f]{32}$")
 def _is_valid_id(value: str) -> bool:
     return bool(value) and bool(_ID_RE.match(value))
 
+def _working_path(pdf_id: str) -> Path:
+    wp = WORK_DIR / f"{pdf_id}.pdf"
+    if not wp.exists():
+        src = UPLOAD_DIR / f"{pdf_id}.pdf"
+        if not src.exists():
+            raise HTTPException(404, "PDF bulunamadı. Lütfen dosyayı tekrar yükleyin.")
+        shutil.copyfile(src, wp)
+    return wp
+
 class CommandRequest(BaseModel):
     pdf_id: str
     command: str
     image_id: str = ""
+
+class ManualEditRequest(BaseModel):
+    pdf_id: str
+    page: int = 1
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    text: str = ""
 
 @app.get("/")
 async def root():
@@ -134,3 +152,40 @@ async def download_pdf(result_id: str):
     p = RESULT_DIR/f"{result_id}.pdf"
     if not p.exists(): raise HTTPException(404,"Dosya bulunamadı.")
     return FileResponse(str(p), media_type="application/pdf", filename=f"duzenlenmis_{result_id[:8]}.pdf")
+
+@app.get("/pdf-page-image/{pdf_id}")
+async def pdf_page_image(pdf_id: str, page: int = 1):
+    if not _is_valid_id(pdf_id): raise HTTPException(400, "Geçersiz PDF kimliği.")
+    path = _working_path(pdf_id)
+    try:
+        png_bytes = pdf_proc.render_page_png(str(path), page)
+    except Exception:
+        raise HTTPException(500, "Sayfa görüntüsü oluşturulamadı.")
+    return Response(content=png_bytes, media_type="image/png")
+
+@app.get("/pdf-text-boxes/{pdf_id}")
+async def pdf_text_boxes(pdf_id: str, page: int = 1):
+    if not _is_valid_id(pdf_id): raise HTTPException(400, "Geçersiz PDF kimliği.")
+    path = _working_path(pdf_id)
+    try:
+        return pdf_proc.get_text_boxes(str(path), page)
+    except Exception:
+        raise HTTPException(500, "Sayfa metin kutuları okunamadı.")
+
+@app.post("/manual-edit")
+async def manual_edit(req: ManualEditRequest):
+    if not _is_valid_id(req.pdf_id): raise HTTPException(400, "Geçersiz PDF kimliği.")
+    if req.x1 <= req.x0 or req.y1 <= req.y0:
+        raise HTTPException(400, "Geçersiz seçim alanı.")
+    path = _working_path(req.pdf_id)
+    ok = pdf_proc.edit_bbox(str(path), req.page, [req.x0, req.y0, req.x1, req.y1], req.text)
+    if not ok:
+        raise HTTPException(500, "Düzenleme uygulanamadı. Lütfen tekrar deneyin.")
+    return {"ok": True}
+
+@app.get("/download-manual/{pdf_id}")
+async def download_manual(pdf_id: str):
+    if not _is_valid_id(pdf_id): raise HTTPException(404, "Dosya bulunamadı.")
+    p = WORK_DIR/f"{pdf_id}.pdf"
+    if not p.exists(): raise HTTPException(404, "Dosya bulunamadı. Önce bir düzenleme yapın.")
+    return FileResponse(str(p), media_type="application/pdf", filename=f"duzenlenmis_{pdf_id[:8]}.pdf")

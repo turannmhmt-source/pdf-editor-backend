@@ -45,6 +45,15 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .loading-text { display: flex; align-items: center; justify-content: center; gap: 10px; }
   .optional-tag { font-size: 11px; color: #475569; font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .manual-page-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .manual-page-bar span { font-size: 13px; color: #94a3b8; }
+  .manual-scroll { overflow: auto; max-width: 100%; border: 1px solid #2d2d3d; border-radius: 10px; background: #0a0a12; }
+  .manual-wrap { position: relative; display: inline-block; }
+  .manual-wrap img { display: block; }
+  .manual-overlay { position: absolute; top: 0; left: 0; }
+  .manual-box { position: absolute; cursor: pointer; border: 1px solid transparent; border-radius: 2px; }
+  .manual-box:hover { border-color: #a78bfa; background: rgba(167,139,250,0.2); }
+  .manual-hint { font-size: 12px; color: #64748b; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -89,6 +98,26 @@
 
   <div id="result-area"></div>
   <div id="error-area"></div>
+
+  <div class="card">
+    <h3>✍️ Manuel Düzenleme</h3>
+    <button class="voice-btn" id="manual-open-btn" onclick="openManualEditor()">Manuel düzenlemeyi aç</button>
+    <div id="manual-editor" style="display:none; margin-top:12px;">
+      <div class="manual-page-bar">
+        <button class="voice-btn" style="margin-bottom:0;" onclick="manualPrevPage()">◀ Önceki</button>
+        <span id="manual-page-info">Sayfa 1 / 1</span>
+        <button class="voice-btn" style="margin-bottom:0;" onclick="manualNextPage()">Sonraki ▶</button>
+      </div>
+      <div class="manual-scroll">
+        <div class="manual-wrap" id="manual-wrap">
+          <img id="manual-img" alt="PDF sayfası">
+          <div class="manual-overlay" id="manual-overlay"></div>
+        </div>
+      </div>
+      <p class="manual-hint">Değiştirmek istediğiniz metnin üzerine tıklayın, açılan kutuya yeni metni yazıp onaylayın. Alanı boş bırakırsanız metin silinir.</p>
+      <a class="download-btn" style="margin-top:10px; cursor:pointer;" onclick="manualDownload()">⬇️ Manuel Düzenlenmiş PDF'i İndir</a>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -170,6 +199,91 @@ async function processCommand() {
 
 function showError(msg) { document.getElementById('error-area').innerHTML=`<div class="error">❌ ${msg}</div>`; }
 function clearMessages() { document.getElementById('result-area').innerHTML=''; document.getElementById('error-area').innerHTML=''; }
+
+let manualPdfId=null, manualPage=1, manualPageCount=1;
+const MANUAL_DPI = 150;
+const MANUAL_PT_TO_PX = MANUAL_DPI / 72;
+
+async function openManualEditor() {
+  const pdfInput = document.getElementById('pdf-input');
+  clearMessages();
+  if (!pdfId && !pdfInput.files[0]) return showError('Lütfen önce bir PDF dosyası seçin.');
+  const btn = document.getElementById('manual-open-btn');
+  btn.disabled = true;
+  try {
+    if (!pdfId) {
+      const fd = new FormData(); fd.append('file', pdfInput.files[0]);
+      const r = await fetch('/upload-pdf', {method:'POST', body:fd});
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'PDF yüklenemedi.');
+      pdfId = d.pdf_id;
+    }
+    manualPdfId = pdfId;
+    manualPage = 1;
+    document.getElementById('manual-editor').style.display = 'block';
+    await loadManualPage();
+  } catch(e) {
+    showError(e.message || 'Manuel düzenleme açılamadı.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadManualPage() {
+  try {
+    const r = await fetch(`/pdf-text-boxes/${manualPdfId}?page=${manualPage}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'Sayfa okunamadı.');
+    manualPageCount = data.page_count || 1;
+    document.getElementById('manual-page-info').textContent = `Sayfa ${manualPage} / ${manualPageCount}`;
+
+    const img = document.getElementById('manual-img');
+    img.src = `/pdf-page-image/${manualPdfId}?page=${manualPage}&t=${Date.now()}`;
+    await new Promise((resolve) => { img.onload = resolve; img.onerror = resolve; });
+
+    const overlay = document.getElementById('manual-overlay');
+    overlay.innerHTML = '';
+    overlay.style.width = (data.width * MANUAL_PT_TO_PX) + 'px';
+    overlay.style.height = (data.height * MANUAL_PT_TO_PX) + 'px';
+    (data.boxes || []).forEach(b => {
+      const [x0, y0, x1, y1] = b.bbox;
+      const div = document.createElement('div');
+      div.className = 'manual-box';
+      div.style.left = (x0 * MANUAL_PT_TO_PX) + 'px';
+      div.style.top = (y0 * MANUAL_PT_TO_PX) + 'px';
+      div.style.width = Math.max((x1 - x0) * MANUAL_PT_TO_PX, 4) + 'px';
+      div.style.height = Math.max((y1 - y0) * MANUAL_PT_TO_PX, 4) + 'px';
+      div.title = b.text;
+      div.onclick = () => editManualBox(b.text, x0, y0, x1, y1);
+      overlay.appendChild(div);
+    });
+  } catch(e) {
+    showError(e.message || 'Sayfa yüklenemedi.');
+  }
+}
+
+async function editManualBox(currentText, x0, y0, x1, y1) {
+  const newText = prompt('Bu alanı düzenleyin:', currentText);
+  if (newText === null || newText === currentText) return;
+  try {
+    const r = await fetch('/manual-edit', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({pdf_id: manualPdfId, page: manualPage, x0, y0, x1, y1, text: newText})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Düzenleme uygulanamadı.');
+    await loadManualPage();
+  } catch(e) {
+    showError(e.message || 'Düzenleme uygulanamadı.');
+  }
+}
+
+function manualPrevPage() { if (manualPage > 1) { manualPage--; loadManualPage(); } }
+function manualNextPage() { if (manualPage < manualPageCount) { manualPage++; loadManualPage(); } }
+function manualDownload() {
+  if (!manualPdfId) return showError('Önce manuel düzenlemeyi açıp bir değişiklik yapın.');
+  window.open(`/download-manual/${manualPdfId}`, '_blank');
+}
 </script>
 </body>
 </html>
