@@ -115,7 +115,11 @@ async def process_command(req: CommandRequest):
     if req.image_id and _is_valid_id(req.image_id):
         for ext in [".jpg",".jpeg",".png",".webp",".bmp"]:
             ip = UPLOAD_DIR/f"{req.image_id}{ext}"
-            if ip.exists(): ocr_text = ocr_proc.extract_text(str(ip)); break
+            if ip.exists():
+                ocr_text = ocr_proc.extract_text(str(ip))
+                if not ocr_text:
+                    ocr_text = ai_interp.read_image_text(str(ip))
+                break
     actions = ai_interp.interpret_command(pdf_text, req.command, ocr_text)
     if not actions: raise HTTPException(422,"Komut anlaşılamadı. Lütfen komutunuzu daha açık bir şekilde yazın.")
     rid = uuid.uuid4().hex

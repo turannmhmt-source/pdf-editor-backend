@@ -1,7 +1,14 @@
+import base64
 import json
 import re
+from pathlib import Path
 
 _ACTION_TYPES = {"find_replace", "add_text"}
+_IMAGE_READ_PROMPT = (
+    "Bu görseldeki (kimlik, pasaport, fatura vb.) tüm okunabilir metni olduğu gibi "
+    "çıkar. İsim, soyisim, numara, tarih gibi tüm alanları eksiksiz ve satır satır "
+    "yaz. Sadece görselde gördüğün metni yaz, yorum veya açıklama ekleme."
+)
 
 
 class AIInterpreter:
@@ -38,6 +45,43 @@ class AIInterpreter:
                         file=f, model="whisper-1", language="tr"
                     )
                 return (result.text or "").strip()
+            except Exception:
+                pass
+        return ""
+
+    def read_image_text(self, path: str) -> str:
+        try:
+            with open(path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+        except Exception:
+            return ""
+        ext = Path(path).suffix.lower().lstrip(".") or "jpeg"
+        mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+        data_url = f"data:{mime};base64,{b64}"
+        content = [
+            {"type": "text", "text": _IMAGE_READ_PROMPT},
+            {"type": "image_url", "image_url": {"url": data_url}},
+        ]
+        if self._groq_client:
+            try:
+                resp = self._groq_client.chat.completions.create(
+                    model="meta-llama/llama-4-scout-17b-16e-instruct",
+                    messages=[{"role": "user", "content": content}],
+                    temperature=0,
+                )
+                text = (resp.choices[0].message.content or "").strip()
+                if text:
+                    return text
+            except Exception:
+                pass
+        if self._openai_client:
+            try:
+                resp = self._openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": content}],
+                    temperature=0,
+                )
+                return (resp.choices[0].message.content or "").strip()
             except Exception:
                 pass
         return ""
