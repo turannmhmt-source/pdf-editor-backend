@@ -95,14 +95,31 @@ class AIInterpreter:
         extra = f"\nReferans görselden okunan metin:\n{ocr_text[:2000]}" if ocr_text else ""
         return (
             "Aşağıda bir PDF belgesinin metni ve kullanıcının bu belge üzerinde yapılmasını "
-            "istediği bir komut var. Bu komutu, aşağıdaki JSON şemasına uyan bir eylem listesine çevir.\n\n"
+            "istediği bir komut var. PDF metni, her sayfanın başında [Sayfa N] işaretiyle "
+            "ayrılmış şekilde verilmiştir. Bu komutu, aşağıdaki JSON şemasına uyan bir eylem "
+            "listesine çevir.\n\n"
             "Desteklenen eylem tipleri:\n"
-            '- {"type": "find_replace", "find": "<bulunacak metin>", "replace": "<yeni metin>"}\n'
-            '- {"type": "add_text", "page": <sayfa no, 0 tabanlı>, "x": <x>, "y": <y>, '
+            '- {"type": "find_replace", "find": "<bulunacak metin>", "replace": "<yeni metin>", '
+            '"page": <opsiyonel, 1 tabanlı sayfa no>, "occurrence": <opsiyonel, kaçıncı '
+            'eşleşme, 1 tabanlı>}\n'
+            '- {"type": "add_text", "page": <1 tabanlı sayfa no>, "x": <x>, "y": <y>, '
             '"text": "<eklenecek metin>", "fontsize": <punto>}\n\n'
             "Kurallar:\n"
+            "- \"find\" alanı PDF metninde birebir (karakteri karakterine) geçen bir metin "
+            "olmalı. Sadece komutta geçen kelimeyi değil, PDF metnindeki gerçek yazımını kullan.\n"
+            "- \"find\" için mümkün olduğunca uzun ve benzersiz bir metin parçası seç; gerekirse "
+            "hemen öncesindeki/sonrasındaki kelimeleri de dahil et. Tek başına belgede başka "
+            "yerlerde de geçebilecek kısa/genel ifadeler (örn. sadece bir sayı veya yaygın bir "
+            "kelime) seçme — aksi halde belgede istenmeyen başka yerler de değişebilir.\n"
+            "- Değiştirilecek metnin hangi sayfada olduğu PDF metnindeki [Sayfa N] işaretinden "
+            "belliyse, \"page\" alanını mutlaka doldur.\n"
+            "- Aynı metin PDF'te birden fazla yerde geçiyorsa ve kullanıcı sadece belirli birini "
+            "kastediyorsa (örn. \"ilk\", \"ikinci\" gibi), \"occurrence\" alanını kullan; "
+            "kullanıcı tüm eşleşmelerin değişmesini istiyorsa (örn. bir ismin her geçtiği yer) "
+            "\"occurrence\" ve \"page\" alanlarını boş bırak.\n"
             "- Sadece geçerli bir JSON dizisi döndür, başka hiçbir açıklama ya da metin yazma.\n"
-            "- Komutu uygulamak mümkün değilse boş dizi [] döndür.\n\n"
+            "- Komutu uygulamak mümkün değilse veya \"find\" metnini PDF metninde bulamıyorsan "
+            "boş dizi [] döndür, tahmin yürütme.\n\n"
             f"PDF metni:\n{pdf_text[:6000]}{extra}\n\n"
             f"Kullanıcı komutu: {command}\n\n"
             "JSON:"
