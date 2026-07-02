@@ -9,6 +9,18 @@ _IMAGE_READ_PROMPT = (
     "çıkar. İsim, soyisim, numara, tarih gibi tüm alanları eksiksiz ve satır satır "
     "yaz. Sadece görselde gördüğün metni yaz, yorum veya açıklama ekleme."
 )
+# Some PDFs (often from older Turkish enterprise report generators) embed fonts
+# with non-standard character codes: Turkish letters extract as control/garbage
+# characters while digits and plain ASCII stay correct. Detect that so the
+# prompt can steer the model away from guessing Turkish label text as "find".
+_GARBLED_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _looks_garbled(text: str) -> bool:
+    if not text:
+        return False
+    sample = text[:4000]
+    return len(_GARBLED_RE.findall(sample)) > 5
 
 
 class AIInterpreter:
@@ -93,11 +105,23 @@ class AIInterpreter:
 
     def _build_prompt(self, pdf_text: str, command: str, ocr_text: str) -> str:
         extra = f"\nReferans görselden okunan metin:\n{ocr_text[:2000]}" if ocr_text else ""
+        garbled_warning = (
+            "\nÖNEMLİ UYARI: Bu PDF'in metin katmanı bozuk font kodlaması içeriyor. "
+            "SAYILAR, TARİHLER ve düz ASCII metinler (örn. isimler) doğru görünür, ama "
+            "TÜRKÇE HARFLER (İ, ı, Ş, ş, Ğ, ğ, Ö, ö, Ü, ü, Ç, ç) yanlış/anlamsız "
+            "karakterlerle görünüyor olabilir (örn. \"İşbu\" yerine \"øúEX\"). Bu yüzden:\n"
+            "  * \"find\" alanında etiket/başlık metinlerini (Türkçe harf içerenleri) DEĞİL, "
+            "sadece PDF metninde gördüğün sayı/tarih/plain metin değerlerini kullan.\n"
+            "  * Benzer görünen birden fazla tarih/sayı varsa (örn. bir poliçe başlangıç "
+            "tarihi ile bir doğum tarihi), bunları komutun bağlamına göre dikkatle ayır; "
+            "emin değilsen o alanı DEĞİŞTİRME.\n"
+            if _looks_garbled(pdf_text) else ""
+        )
         return (
             "Aşağıda bir PDF belgesinin metni ve kullanıcının bu belge üzerinde yapılmasını "
             "istediği bir komut var. PDF metni, her sayfanın başında [Sayfa N] işaretiyle "
             "ayrılmış şekilde verilmiştir. Bu komutu, aşağıdaki JSON şemasına uyan bir eylem "
-            "listesine çevir.\n\n"
+            f"listesine çevir.\n{garbled_warning}\n"
             "Desteklenen eylem tipleri:\n"
             '- {"type": "find_replace", "find": "<bulunacak metin>", "replace": "<yeni metin>", '
             '"page": <opsiyonel, 1 tabanlı sayfa no>, "occurrence": <opsiyonel, kaçıncı '
@@ -111,6 +135,8 @@ class AIInterpreter:
             "hemen öncesindeki/sonrasındaki kelimeleri de dahil et. Tek başına belgede başka "
             "yerlerde de geçebilecek kısa/genel ifadeler (örn. sadece bir sayı veya yaygın bir "
             "kelime) seçme — aksi halde belgede istenmeyen başka yerler de değişebilir.\n"
+            "- Kısa/genel bir değeri (örn. 2 haneli bir yaş, tek bir rakam) değiştirmen "
+            "gerekiyorsa mutlaka \"page\" alanını belirt; mümkünse \"occurrence\" de kullan.\n"
             "- Değiştirilecek metnin hangi sayfada olduğu PDF metnindeki [Sayfa N] işaretinden "
             "belliyse, \"page\" alanını mutlaka doldur.\n"
             "- Aynı metin PDF'te birden fazla yerde geçiyorsa ve kullanıcı sadece belirli birini "
