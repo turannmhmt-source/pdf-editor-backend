@@ -1,4 +1,4 @@
-import os, uuid, shutil
+import os, re, uuid, shutil
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,6 +27,11 @@ ocr_proc = OCRProcessor()
 
 if Path("static").exists():
     app.mount("/static", StaticFiles(directory="static"), name="static")
+
+_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+def _is_valid_id(value: str) -> bool:
+    return bool(value) and bool(_ID_RE.match(value))
 
 class CommandRequest(BaseModel):
     pdf_id: str
@@ -101,11 +106,13 @@ async def voice_to_text(file: UploadFile = File(...)):
 async def process_command(req: CommandRequest):
     if not req.command.strip():
         raise HTTPException(400, "Lütfen bir komut girin.")
+    if not _is_valid_id(req.pdf_id):
+        raise HTTPException(400, "Geçersiz PDF kimliği. Lütfen dosyayı tekrar yükleyin.")
     pdf_path = UPLOAD_DIR/f"{req.pdf_id}.pdf"
     if not pdf_path.exists(): raise HTTPException(404,"PDF bulunamadı. Lütfen dosyayı tekrar yükleyin.")
     pdf_text = pdf_proc.extract_text(str(pdf_path))
     ocr_text = ""
-    if req.image_id:
+    if req.image_id and _is_valid_id(req.image_id):
         for ext in [".jpg",".jpeg",".png",".webp",".bmp"]:
             ip = UPLOAD_DIR/f"{req.image_id}{ext}"
             if ip.exists(): ocr_text = ocr_proc.extract_text(str(ip)); break
@@ -119,6 +126,7 @@ async def process_command(req: CommandRequest):
 
 @app.get("/download-pdf/{result_id}")
 async def download_pdf(result_id: str):
+    if not _is_valid_id(result_id): raise HTTPException(404,"Dosya bulunamadı.")
     p = RESULT_DIR/f"{result_id}.pdf"
     if not p.exists(): raise HTTPException(404,"Dosya bulunamadı.")
     return FileResponse(str(p), media_type="application/pdf", filename=f"duzenlenmis_{result_id[:8]}.pdf")
