@@ -114,7 +114,7 @@
           <div class="manual-overlay" id="manual-overlay"></div>
         </div>
       </div>
-      <p class="manual-hint">Değiştirmek istediğiniz metnin üzerine tıklayın, açılan kutuya yeni metni yazıp onaylayın. Alanı boş bırakırsanız metin silinir.</p>
+      <p class="manual-hint" id="manual-hint-text">Değiştirmek istediğiniz metnin üzerine tıklayın, açılan kutuya yeni metni yazıp onaylayın. Alanı boş bırakırsanız metin silinir.</p>
       <a class="download-btn" style="margin-top:10px; cursor:pointer;" onclick="manualDownload()">⬇️ Manuel Düzenlenmiş PDF'i İndir</a>
     </div>
   </div>
@@ -255,6 +255,10 @@ async function loadManualPage() {
       div.onclick = () => editManualBox(b.text, x0, y0, x1, y1);
       overlay.appendChild(div);
     });
+    const hint = document.getElementById('manual-hint-text');
+    hint.textContent = (data.boxes || []).length
+      ? 'Değiştirmek istediğiniz metnin üzerine tıklayın, açılan kutuya yeni metni yazıp onaylayın. Alanı boş bırakırsanız metin silinir.'
+      : 'Bu sayfada tıklanabilir metin bulunamadı (görsel/taranmış bir sayfa olabilir).';
   } catch(e) {
     showError(e.message || 'Sayfa yüklenemedi.');
   }

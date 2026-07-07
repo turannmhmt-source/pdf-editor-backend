@@ -34,6 +34,14 @@ class PDFProcessor:
     def __init__(self):
         self._fonts = {key: fitz.Font(fontfile=str(path)) for key, path in FONT_FILES.items()}
 
+    def is_readable(self, path: str) -> bool:
+        try:
+            with fitz.open(path) as doc:
+                len(doc)
+            return True
+        except Exception:
+            return False
+
     def extract_text(self, path: str) -> str:
         with fitz.open(path) as doc:
             pages = [f"[Sayfa {i + 1}]\n{page.get_text()}" for i, page in enumerate(doc)]
@@ -183,10 +191,6 @@ class PDFProcessor:
     def _clamp_page(self, doc, page_num) -> int:
         page_num = self._to_int(page_num) or 1
         return max(1, min(page_num, len(doc))) - 1
-
-    def get_page_count(self, path: str) -> int:
-        with fitz.open(path) as doc:
-            return len(doc)
 
     def get_text_boxes(self, path: str, page_num) -> dict:
         with fitz.open(path) as doc:

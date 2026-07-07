@@ -39,7 +39,10 @@ def _working_path(pdf_id: str) -> Path:
         src = UPLOAD_DIR / f"{pdf_id}.pdf"
         if not src.exists():
             raise HTTPException(404, "PDF bulunamadı. Lütfen dosyayı tekrar yükleyin.")
-        shutil.copyfile(src, wp)
+        try:
+            shutil.copyfile(src, wp)
+        except Exception:
+            raise HTTPException(500, "PDF üzerinde çalışma kopyası oluşturulamadı. Lütfen tekrar deneyin.")
     return wp
 
 class CommandRequest(BaseModel):
@@ -82,6 +85,9 @@ async def upload_pdf(file: UploadFile = File(...)):
     if dest.stat().st_size == 0:
         dest.unlink(missing_ok=True)
         raise HTTPException(400, "Yüklenen PDF dosyası boş görünüyor. Lütfen geçerli bir dosya seçin.")
+    if not pdf_proc.is_readable(str(dest)):
+        dest.unlink(missing_ok=True)
+        raise HTTPException(400, "Geçersiz veya bozuk bir PDF dosyası. Lütfen başka bir dosya deneyin.")
     return {"pdf_id":pid,"filename":file.filename}
 
 @app.post("/upload-image")
@@ -128,7 +134,10 @@ async def process_command(req: CommandRequest):
         raise HTTPException(400, "Geçersiz PDF kimliği. Lütfen dosyayı tekrar yükleyin.")
     pdf_path = UPLOAD_DIR/f"{req.pdf_id}.pdf"
     if not pdf_path.exists(): raise HTTPException(404,"PDF bulunamadı. Lütfen dosyayı tekrar yükleyin.")
-    pdf_text = pdf_proc.extract_text(str(pdf_path))
+    try:
+        pdf_text = pdf_proc.extract_text(str(pdf_path))
+    except Exception:
+        raise HTTPException(400, "PDF metni okunamadı. Dosya bozuk olabilir, lütfen tekrar yükleyin.")
     ocr_text = ""
     if req.image_id and _is_valid_id(req.image_id):
         for ext in [".jpg",".jpeg",".png",".webp",".bmp"]:
